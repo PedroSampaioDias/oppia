@@ -24,6 +24,7 @@ import os
 import pathlib
 import ssl
 import sys
+import time
 import urllib
 import zipfile
 from http import client
@@ -148,18 +149,42 @@ def url_retrieve(
 
 
 def url_open(
-    source_url: Union[str, urllib.request.Request],
-) -> urllib.request._UrlopenRet:
+    source_url: Union[str, urlrequest.Request],
+) -> urlrequest._UrlopenRet:
     """Opens a URL and returns the response.
 
+    This function attempts to retrieve the URL and automatically retries once
+    if the request is temporarily unavailable due to server-imposed limits.
+
     Args:
-        source_url: Union[str, Request]. The URL.
+        source_url: Union[str, Request]. The URL to be opened.
 
     Returns:
-        urlopen. The 'urlopen' object.
+        urlrequest._UrlopenRet. A urlopen response object.
+
+    Raises:
+        HTTPError. The request failed and could not be completed or retried
+            successfully.
+        ValueError. The rate-limit reset time provided by the server could not
+            be parsed.
     """
     context = ssl.create_default_context(cafile=certifi.where())
-    return urllib.request.urlopen(source_url, context=context)
+    try:
+        return urlrequest.urlopen(source_url, context=context)
+    except urlerror.HTTPError as e:
+        if e.code != 403:
+            raise
+        remaining = e.headers.get('x-ratelimit-remaining')
+        if remaining != '0':
+            raise
+        reset = e.headers.get('x-ratelimit-reset')
+        if reset is None:
+            raise
+        reset_epoch = int(reset)
+        now = int(time.time())
+        wait = max(reset_epoch - now, 0) + 5
+        time.sleep(wait)
+        return urlrequest.urlopen(source_url, context=context)
 
 
 # Here we use total=False since some fields in this dict
